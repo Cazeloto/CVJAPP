@@ -30,11 +30,14 @@ Antes de ativar o processo continuo:
 .\.venv\Scripts\python.exe sync_agent.py --once
 ```
 
-Depois, instale a tarefa do Windows:
+Em producao, use o pacote compilado e execute o instalador que fica na raiz do
+ZIP extraido. Na primeira instalacao, depois de gerar o backup local:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install_sync_agent.ps1
+powershell -ExecutionPolicy Bypass -File .\install_sync_agent.ps1 -RunInitialSync
 ```
+
+Nas atualizacoes seguintes, execute o mesmo comando sem `-RunInitialSync`.
 
 O log fica em `outputs\sync-agent.log`. A tarefa agendada se chama
 `CVJAPP Neon Local Sync`.

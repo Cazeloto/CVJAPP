@@ -1,29 +1,61 @@
 param(
-    [string]$Python = "C:\CVJAPP\.venv\Scripts\python.exe",
-    [string]$AppDir = "C:\CVJAPP"
+    [string]$AgentExe = (Join-Path $PSScriptRoot "..\CVJAPP_SyncAgent.exe"),
+    [string]$EnvPath = (Join-Path $PSScriptRoot "..\CVJAPP_Server\.env"),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "CVJAPP Sync Agent"),
+    [switch]$RunInitialSync
 )
 
 $ErrorActionPreference = "Stop"
-$Python = (Resolve-Path -LiteralPath $Python).Path
-$AppDir = (Resolve-Path -LiteralPath $AppDir).Path
-$AgentScript = Join-Path $AppDir "sync_agent.py"
-$EnvPath = Join-Path $AppDir ".env"
+$AgentExe = (Resolve-Path -LiteralPath $AgentExe).Path
+$EnvPath = (Resolve-Path -LiteralPath $EnvPath).Path
+$InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+$TaskName = "CVJAPP Neon Local Sync"
 
-if (-not (Test-Path -LiteralPath $AgentScript -PathType Leaf)) {
-    throw "Agente nao encontrado: $AgentScript"
+if (-not (Test-Path -LiteralPath $AgentExe -PathType Leaf)) {
+    throw "Agente nao encontrado: $AgentExe"
 }
 if (-not (Test-Path -LiteralPath $EnvPath -PathType Leaf)) {
     throw "Configuracao nao encontrada: $EnvPath"
 }
 
-& $Python $AgentScript --env $EnvPath --check
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+$InstalledAgent = Join-Path $InstallDir "CVJAPP_SyncAgent.exe"
+
+$ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($ExistingTask) {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+$AgentProcesses = Get-CimInstance Win32_Process -Filter "Name='CVJAPP_SyncAgent.exe'" |
+    Where-Object { $_.ExecutablePath -eq $InstalledAgent }
+foreach ($AgentProcess in $AgentProcesses) {
+    Stop-Process -Id $AgentProcess.ProcessId -Force
+}
+
+Copy-Item -LiteralPath $AgentExe -Destination $InstalledAgent -Force
+
+& $InstalledAgent --env $EnvPath --check
 if ($LASTEXITCODE -ne 0) {
     throw "A validacao das conexoes do agente falhou."
 }
 
-$TaskName = "CVJAPP Neon Local Sync"
-$Arguments = "`"$AgentScript`" --env `"$EnvPath`""
-$Action = New-ScheduledTaskAction -Execute $Python -Argument $Arguments -WorkingDirectory $AppDir
+if ($RunInitialSync) {
+    & $InstalledAgent --env $EnvPath --initial --once
+    if ($LASTEXITCODE -ne 0) {
+        throw "A carga inicial falhou."
+    }
+} else {
+    & $InstalledAgent --env $EnvPath --once
+    if ($LASTEXITCODE -ne 0) {
+        throw "O banco local ainda nao foi inicializado. Execute novamente com -RunInitialSync depois de gerar o backup."
+    }
+}
+
+$Arguments = "--env `"$EnvPath`""
+$Action = New-ScheduledTaskAction `
+    -Execute $InstalledAgent `
+    -Argument $Arguments `
+    -WorkingDirectory $InstallDir
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $Principal = New-ScheduledTaskPrincipal `
     -UserId $env:USERNAME `
@@ -34,10 +66,6 @@ $Settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1)
 
-$ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if ($ExistingTask) {
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-}
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
@@ -50,4 +78,6 @@ Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "Agente de sincronizacao instalado e iniciado."
 Write-Host "Tarefa: $TaskName"
-Write-Host "Log: $AppDir\outputs\sync-agent.log"
+Write-Host "Executavel: $InstalledAgent"
+Write-Host "Configuracao: $EnvPath"
+Write-Host "Log: $([System.IO.Path]::GetDirectoryName($EnvPath))\outputs\sync-agent.log"

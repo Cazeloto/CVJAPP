@@ -26,6 +26,8 @@ dist_onefile/
 *.whl
 *.spec
 !CVJAPP_Server.spec
+!CVJAPP_SyncAgent.spec
+release/
 
 # Arquivos temporarios e saidas geradas
 output/

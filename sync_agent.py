@@ -13,6 +13,8 @@ from db.sync import NeonToLocalSynchronizer, SyncConfig
 
 
 def default_env_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / ".env"
     return Path(__file__).resolve().parent / ".env"
 
 
