@@ -1,0 +1,41 @@
+# Segredos e configuracoes locais
+.env
+.env.*
+*.env
+!.env.example
+config.json
+
+# Ambientes virtuais
+.venv/
+venv/
+venv_*/
+
+# Cache e ferramentas Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Empacotamento e binarios gerados
+build/
+dist/
+dist_onefile/
+*.whl
+*.spec
+!CVJAPP_Server.spec
+
+# Arquivos temporarios e saidas geradas
+output/
+outputs/
+tmp/
+*.log
+
+# Configuracoes locais e instaladores
+.vscode/
+.agents/
+*.exe
+* copy.py
+* Copia.env

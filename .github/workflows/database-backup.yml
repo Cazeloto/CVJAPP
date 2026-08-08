@@ -1,0 +1,165 @@
+name: Backup do banco de dados
+
+on:
+  schedule:
+    # 06:30 UTC corresponde a 03:30 no horario de Brasilia.
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cvjapp-database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Copiar, restaurar e criptografar
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.CVJAPP_DATABASE_URL }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.CVJAPP_BACKUP_KEY }}
+
+    steps:
+      - name: Conferir configuracao protegida
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "O segredo CVJAPP_DATABASE_URL nao foi configurado."
+            exit 1
+          fi
+          if [[ ${#BACKUP_ENCRYPTION_KEY} -lt 32 ]]; then
+            echo "O segredo CVJAPP_BACKUP_KEY deve ter pelo menos 32 caracteres."
+            exit 1
+          fi
+
+      - name: Criar copia PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          backup_name="cvjapp-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          echo "BACKUP_NAME=${backup_name}" >> "${GITHUB_ENV}"
+
+          docker run --rm \
+            --env DATABASE_URL \
+            --volume "${PWD}/backup:/backup" \
+            postgres:18-alpine \
+            sh -ceu 'pg_dump \
+              --dbname="$DATABASE_URL" \
+              --format=custom \
+              --compress=9 \
+              --no-owner \
+              --no-acl \
+              --file=/backup/cvjapp.dump'
+
+          test -s backup/cvjapp.dump
+
+      - name: Testar restauracao completa
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="cvjapp-restore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker rm --force "${container}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach \
+            --name "${container}" \
+            --env POSTGRES_PASSWORD=restore-test-only \
+            --env POSTGRES_DB=cvjapp_restore \
+            --volume "${PWD}/backup:/backup:ro" \
+            postgres:18-alpine >/dev/null
+
+          ready=false
+          for attempt in {1..30}; do
+            if docker exec "${container}" pg_isready \
+              --username postgres --dbname cvjapp_restore >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "${ready}" != true ]]; then
+            echo "O PostgreSQL temporario nao ficou pronto."
+            exit 1
+          fi
+
+          docker exec "${container}" pg_restore \
+            --exit-on-error \
+            --no-owner \
+            --no-acl \
+            --username postgres \
+            --dbname cvjapp_restore \
+            /backup/cvjapp.dump
+
+          table_count="$(docker exec "${container}" psql \
+            --username postgres \
+            --dbname cvjapp_restore \
+            --tuples-only --no-align \
+            --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")"
+
+          if [[ "${table_count}" -lt 3 ]]; then
+            echo "Restauracao incompleta: somente ${table_count} tabelas publicas."
+            exit 1
+          fi
+
+          for table in consulente tratamento cvjcura_users cvjapp_audit_events; do
+            exists="$(docker exec "${container}" psql \
+              --username postgres \
+              --dbname cvjapp_restore \
+              --tuples-only --no-align \
+              --command="SELECT to_regclass('public.${table}') IS NOT NULL;")"
+            if [[ "${exists}" != "t" ]]; then
+              echo "Tabela essencial ausente apos a restauracao: ${table}"
+              exit 1
+            fi
+          done
+
+          echo "Restauracao validada com ${table_count} tabelas publicas."
+
+      - name: Criptografar e validar o arquivo
+        shell: bash
+        run: |
+          set -euo pipefail
+          encrypted="backup/${BACKUP_NAME}.dump.enc"
+          verification="backup/verification.dump"
+
+          openssl enc -aes-256-cbc \
+            -salt \
+            -pbkdf2 \
+            -iter 200000 \
+            -in backup/cvjapp.dump \
+            -out "${encrypted}" \
+            -pass env:BACKUP_ENCRYPTION_KEY
+
+          openssl enc -d -aes-256-cbc \
+            -pbkdf2 \
+            -iter 200000 \
+            -in "${encrypted}" \
+            -out "${verification}" \
+            -pass env:BACKUP_ENCRYPTION_KEY
+
+          cmp --silent backup/cvjapp.dump "${verification}"
+          (
+            cd backup
+            sha256sum "${BACKUP_NAME}.dump.enc" \
+              > "${BACKUP_NAME}.dump.enc.sha256"
+          )
+          rm --force backup/cvjapp.dump "${verification}"
+
+      - name: Guardar copia por 30 dias
+        # actions/upload-artifact v6.0.0, fixada no commit publicado.
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: ${{ env.BACKUP_NAME }}
+          path: |
+            backup/${{ env.BACKUP_NAME }}.dump.enc
+            backup/${{ env.BACKUP_NAME }}.dump.enc.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

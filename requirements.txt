@@ -1,0 +1,17 @@
+argon2-cffi>=25.1,<26.0
+fastapi>=0.115,<0.129
+flet>=0.85.1,<0.87
+flet-web>=0.85.1,<0.87
+psycopg[binary]
+python-dotenv
+reportlab
+pandas
+plotly
+SQLAlchemy
+openpyxl
+kaleido
+pywin32
+psycopg2-binary>=2.9.9
+pyinstaller>=6.0.0
+requests
+uvicorn
