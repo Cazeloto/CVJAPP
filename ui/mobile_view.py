@@ -465,10 +465,20 @@ def build_mobile_cadastro(page: ft.Page):
                                 color="#2855A6",
                             ),
                             *[
-                                ft.Text(
-                                    f"{item['fila']} | "
-                                    f"Senha: {item['prefixo']}-{int(item['numero']):03d}",
-                                    weight=ft.FontWeight.W_600,
+                                ft.Container(
+                                    height=46,
+                                    padding=ft.Padding(left=14, right=14),
+                                    alignment=ft.Alignment.CENTER,
+                                    bgcolor=ft.Colors.GREEN_700,
+                                    border=ft.Border.all(3, "#173A63"),
+                                    border_radius=8,
+                                    content=ft.Text(
+                                        f"{item['fila']} • Senha "
+                                        f"{item['prefixo']}-{int(item['numero']):03d}",
+                                        weight=ft.FontWeight.BOLD,
+                                        color=ft.Colors.WHITE,
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
                                 )
                                 for item in queue_passwords
                             ],
@@ -507,6 +517,7 @@ def build_mobile_cadastro(page: ft.Page):
                         ),
                         *current_queue_controls,
                         _diagnosis_card(data),
+                        _performed_treatments_card(treatments),
                         queue_button(
                             recommended_key,
                             recommended_label,
@@ -867,8 +878,90 @@ def _treatment_values(data):
     ]
 
 
+def _treatment_mediums(treatment) -> str:
+    names = [
+        str(_row_value(treatment, "tra_medium", 0, "") or "").strip(),
+        str(_row_value(treatment, "tra_medium2", 0, "") or "").strip(),
+        str(_row_value(treatment, "tra_medium3", 0, "") or "").strip(),
+    ]
+    return " / ".join(name for name in names if name)
+
+
+def _performed_treatments_card(treatments):
+    performed = []
+    for treatment in treatments or []:
+        treatment_date = _row_value(treatment, "tra_data", 0)
+        treatment_code = int(_row_value(treatment, "tra_codtra", 0, 0) or 0)
+        if not treatment_date or treatment_code not in (1, 2, 3, 4, 5):
+            continue
+        description = str(
+            _row_value(treatment, "tra_descricao", 0, "Tratamento") or "Tratamento"
+        ).strip()
+        date_text = (
+            treatment_date.strftime("%d/%m/%Y")
+            if hasattr(treatment_date, "strftime")
+            else str(treatment_date)
+        )
+        mediums = _treatment_mediums(treatment) or "Médium não informado"
+        performed.append(
+            ft.Container(
+                padding=ft.Padding(left=0, top=6, right=0, bottom=6),
+                border=ft.Border(
+                    bottom=ft.BorderSide(1, ft.Colors.GREY_300)
+                ),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"{description} • {date_text}",
+                            weight=ft.FontWeight.W_600,
+                            color=COLOR_TEXT,
+                        ),
+                        ft.Text(
+                            f"Médium(ns): {mediums}",
+                            size=13,
+                            color=ft.Colors.BLUE_800,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=2,
+                ),
+            )
+        )
+        if len(performed) == 10:
+            break
+
+    return ft.Container(
+        bgcolor="#FAF7FB",
+        border_radius=11,
+        padding=12,
+        content=ft.Column(
+            [
+                ft.Text(
+                    "Tratamentos já realizados",
+                    size=16,
+                    weight=ft.FontWeight.BOLD,
+                    color=COLOR_TEXT,
+                ),
+                *(
+                    performed
+                    or [
+                        ft.Text(
+                            "Nenhum tratamento realizado neste plano.",
+                            color=ft.Colors.GREY_700,
+                        )
+                    ]
+                ),
+            ],
+            spacing=4,
+        ),
+    )
+
+
 def _diagnosis_card(data):
     diagnosis = str(_row_value(data, "con_diagnostico", 17, "") or "").strip()
+    previous_diagnosis = str(
+        _row_value(data, "con_diagnant", 18, "") or ""
+    ).strip()
     return ft.Container(
         bgcolor="#FAF7FB",
         border_radius=11,
@@ -884,6 +977,20 @@ def _diagnosis_card(data):
                 ft.Text(
                     diagnosis or "Não informado.",
                     size=18,
+                    weight=ft.FontWeight.W_500,
+                    color=COLOR_TEXT,
+                    selectable=True,
+                ),
+                ft.Divider(height=12, color=ft.Colors.GREY_300),
+                ft.Text(
+                    "Diagnóstico anterior",
+                    size=16,
+                    weight=ft.FontWeight.BOLD,
+                    color=COLOR_TEXT,
+                ),
+                ft.Text(
+                    previous_diagnosis or "Não informado.",
+                    size=16,
                     weight=ft.FontWeight.W_500,
                     color=COLOR_TEXT,
                     selectable=True,

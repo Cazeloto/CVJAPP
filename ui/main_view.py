@@ -1639,6 +1639,28 @@ def build_main(page: ft.Page, current_user=None):
             color="#7A3E8E" if is_pref_cadastro else COLOR_TEXT,
         )
 
+        labels_senha = []
+        for item in senhas_fila or []:
+            numero_senha = int(item.get("numero") or 0)
+            prefixo_senha = str(item.get("prefixo") or "").strip()
+            fila_senha = str(item.get("fila") or "Fila").strip()
+            labels_senha.append(
+                ft.Container(
+                    height=40,
+                    padding=ft.Padding(left=14, right=14),
+                    alignment=ft.Alignment.CENTER,
+                    bgcolor="#009440",
+                    border=ft.Border.all(4, "#173A63"),
+                    border_radius=8,
+                    content=ft.Text(
+                        f"{fila_senha} • Senha {prefixo_senha}-{numero_senha:03d}",
+                        size=12,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.WHITE,
+                    ),
+                )
+            )
+
         # ==========================
 
         # NOVOS BOTÕES (DETAILS)
@@ -1816,7 +1838,7 @@ def build_main(page: ft.Page, current_user=None):
             ),
             ft.Container(height=5),
             resumo_fila,
-            ft.Row(botoes_fila_triagem, wrap=True),
+            ft.Row([*botoes_fila_triagem, *labels_senha], wrap=True, spacing=8),
             ft.Container(height=5),
             ft.Row([btn_desistiu, btn_finalizar, btn_reiniciar], wrap=True, spacing=10),
             msg_reiniciar,

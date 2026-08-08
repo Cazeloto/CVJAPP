@@ -14,7 +14,9 @@ PostgreSQL Neon e mantida em paralelo ao CVJCURA.
 - auditoria propria do CVJAPP;
 - exportacao e carga integral exclusivas para administradores;
 - impressao local original preservada;
-- backup diario criptografado e testado automaticamente.
+- backup diario criptografado e testado automaticamente;
+- sincronizacao transacional do Neon para o PostgreSQL 10 local, com fila
+  persistente e retomada automatica.
 
 Nao existe dependencia de dominio publico, Render ou agente de impressao
 remoto nesta versao.
@@ -28,6 +30,10 @@ remoto nesta versao.
 Os usuarios sao compartilhados com o CVJCURA porque as duas aplicacoes usam o
 mesmo banco Neon. A auditoria do CVJAPP fica separada na tabela
 `cvjapp_audit_events`.
+
+O Neon e a fonte principal dos dados operacionais. O agente local replica as
+alteracoes para o PostgreSQL 10 sem expor esse banco na internet. Consulte
+[`docs/SINCRONIZACAO_NEON_LOCAL.md`](docs/SINCRONIZACAO_NEON_LOCAL.md).
 
 Consulte tambem:
 
