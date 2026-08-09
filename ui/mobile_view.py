@@ -709,6 +709,16 @@ def build_mobile_cadastro(page: ft.Page):
         search_version["value"] += 1
         page.run_task(run_search, e.control.value or "", search_version["value"])
 
+    def clear_search(_event=None):
+        search_version["value"] += 1
+        selected["cid"] = None
+        search_field.value = ""
+        search_results.controls.clear()
+        detail_area.controls.clear()
+        status.value = "Busque um consulente ou faça um novo cadastro."
+        page.update()
+        page.run_task(search_field.focus)
+
     name_field = ft.TextField(
         label="Nome completo",
         hint_text="Ex.: MARIA DA SILVA",
@@ -821,6 +831,12 @@ def build_mobile_cadastro(page: ft.Page):
         label="Buscar consulente",
         hint_text="Digite o nome",
         prefix_icon=ft.Icons.SEARCH,
+        suffix=ft.IconButton(
+            icon=ft.Icons.CANCEL,
+            icon_color=ft.Colors.RED_600,
+            tooltip="Limpar busca",
+            on_click=clear_search,
+        ),
         on_change=search_changed,
         autofocus=True,
     )

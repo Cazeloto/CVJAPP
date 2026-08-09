@@ -13,9 +13,11 @@ import flet as ft
 import uvicorn
 
 from core.auth import AuthenticatedUser, get_active_user
+from core.base_status import BaseUpdateStatus, status_presentation
 from core.config import settings
 from core.paths import resource_path, sql_upload_dir
 from db.audit import record_audit_event
+from db.repo import obter_status_atualizacao_base
 from ui.audit_view import show_audit_log
 from ui.chamada_view import build_chamada
 from ui.login_view import show_login
@@ -60,7 +62,60 @@ def _access_bar(
     page: ft.Page,
     user: AuthenticatedUser,
     logout,
+    base_status_badge: ft.Control,
+    compact: bool = False,
 ) -> ft.Container:
+    if compact:
+        controls = [
+            ft.Icon(ft.Icons.VERIFIED_USER_OUTLINED, color=ft.Colors.WHITE),
+            ft.Text(
+                user.display_name,
+                color=ft.Colors.WHITE,
+                expand=True,
+                weight=ft.FontWeight.BOLD,
+                no_wrap=True,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            base_status_badge,
+        ]
+        if user.is_admin:
+            controls.append(
+                ft.PopupMenuButton(
+                    icon=ft.Icons.MORE_VERT,
+                    icon_color=ft.Colors.WHITE,
+                    tooltip="Menu administrativo",
+                    items=[
+                        ft.PopupMenuItem(
+                            content="Auditoria",
+                            icon=ft.Icons.HISTORY,
+                            on_click=lambda _: page.go("/auditoria"),
+                        ),
+                        ft.PopupMenuItem(
+                            content="Usuarios",
+                            icon=ft.Icons.MANAGE_ACCOUNTS,
+                            on_click=lambda _: page.go("/usuarios"),
+                        ),
+                    ],
+                )
+            )
+        controls.append(
+            ft.IconButton(
+                icon=ft.Icons.LOGOUT,
+                icon_color=ft.Colors.WHITE,
+                tooltip="Sair",
+                on_click=lambda _: page.run_task(logout),
+            )
+        )
+        return ft.Container(
+            bgcolor="#6B3F6B",
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            content=ft.Row(
+                controls=controls,
+                spacing=2,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+
     controls = [
         ft.Icon(ft.Icons.VERIFIED_USER_OUTLINED, color=ft.Colors.WHITE),
         ft.Text(
@@ -69,6 +124,7 @@ def _access_bar(
             expand=True,
             weight=ft.FontWeight.BOLD,
         ),
+        base_status_badge,
     ]
     if user.is_admin:
         controls.append(
@@ -110,6 +166,44 @@ async def build_app(page: ft.Page) -> None:
     session_started_at: float | None = None
     session_version = 0
     login_notice: str | None = None
+    base_status_dot = ft.Container(
+        width=12,
+        height=12,
+        border_radius=6,
+        bgcolor=ft.Colors.RED_600,
+    )
+    base_status_label = ft.Text(
+        "",
+        size=12,
+        color=ft.Colors.WHITE,
+        visible=False,
+        no_wrap=True,
+    )
+    base_status_badge = ft.Container(
+        tooltip="Verificando a atualizacao da base...",
+        content=ft.Row(
+            [base_status_dot, base_status_label],
+            spacing=5,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    async def refresh_base_status() -> None:
+        try:
+            status = await asyncio.to_thread(obter_status_atualizacao_base)
+        except Exception:
+            logging.exception("Nao foi possivel verificar a atualizacao da base.")
+            status = BaseUpdateStatus(diagnosis_filled=False, available=False)
+        updated, label, tooltip = status_presentation(status)
+        base_status_dot.bgcolor = (
+            ft.Colors.GREEN_600 if updated else ft.Colors.RED_600
+        )
+        base_status_label.value = label
+        base_status_label.visible = bool(label)
+        base_status_badge.tooltip = tooltip
+        if current_user is not None:
+            page.update()
 
     async def end_session(
         action: str,
@@ -184,6 +278,13 @@ async def build_app(page: ft.Page) -> None:
             if not await validate_session(version):
                 return
 
+    async def base_status_guard(version: int) -> None:
+        while current_user is not None and version == session_version:
+            await asyncio.sleep(30)
+            if current_user is None or version != session_version:
+                return
+            await refresh_base_status()
+
     async def render_authenticated_route() -> None:
         route = (page.route or "/").split("?", 1)[0].rstrip("/").lower() or "/"
         page.clean()
@@ -215,7 +316,16 @@ async def build_app(page: ft.Page) -> None:
             build_main(page, current_user)
 
         if current_user:
-            page.controls.insert(0, _access_bar(page, current_user, logout))
+            page.controls.insert(
+                0,
+                _access_bar(
+                    page,
+                    current_user,
+                    logout,
+                    base_status_badge,
+                    compact=route.startswith("/celular"),
+                ),
+            )
             page.update()
 
     async def go_home() -> None:
@@ -226,7 +336,9 @@ async def build_app(page: ft.Page) -> None:
         current_user = user
         session_started_at = time.monotonic()
         session_version += 1
+        await refresh_base_status()
         page.run_task(session_guard, session_version)
+        page.run_task(base_status_guard, session_version)
         target = requested_route if requested_route != "/login" else "/"
         if (page.route or "/") == target:
             await render_authenticated_route()

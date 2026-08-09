@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import threading
 import unicodedata
+from core.base_status import BaseUpdateStatus
 from db.conn import get_conn
 
 
@@ -41,6 +42,28 @@ def buscar_cliente_por_id(cid: int):
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM consulente WHERE con_codigo = %s;", (cid,))
             return cur.fetchone()
+
+
+def obter_status_atualizacao_base() -> BaseUpdateStatus:
+    """Verifica diagnostico e inicio do tratamento do ultimo consulente criado."""
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT con_diagnostico, con_datainicial
+                  FROM consulente
+                 ORDER BY con_codigo DESC
+                 LIMIT 1;
+                """
+            )
+            row = cur.fetchone()
+    if not row:
+        return BaseUpdateStatus(diagnosis_filled=False)
+    return BaseUpdateStatus(
+        diagnosis_filled=bool(str(row.get("con_diagnostico") or "").strip()),
+        treatment_start=row.get("con_datainicial"),
+    )
 
 
 def buscar_tratamentos_ativos(cid: int):
